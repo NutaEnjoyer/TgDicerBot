@@ -1,0 +1,16 @@
+from environs import Env
+
+env = Env()
+env.read_env()
+
+BOT_TOKEN = env.str('BOT_TOKEN')
+CRYPTOBOT_TOKEN = env.str('CRYPTOBOT_TOKEN')
+
+PLAY_CHAT_ID = env.int('PLAY_CHAT_ID')
+FIND_CHAT_ID = env.int('FIND_CHAT_ID')
+
+TIME_GAME_LIVE = env.int('TIME_GAME_LIVE')
+TIME_INVOICE_LIVE = env.int('TIME_INVOICE_LIVE')
+
+ADMIN_IDS = [6258421903, 5422832796, 2134081408]
+
