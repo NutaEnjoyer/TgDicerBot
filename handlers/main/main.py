@@ -263,7 +263,7 @@ async def play_game(game: Game):
 	user_1 = User.get(user_id=game.player_1)
 	user_2 = User.get(user_id=game.player_2)
 
-	ref_sum = round(game.price * cfg.referal_rate / 100 / cryptobot.get_usdt_to_rub_course(), 2)
+	ref_sum = round(game.price * cfg.referal_rate / 100, 2)
 	if user_1.i_am_referal_of:
 		user = User.get(user_id=user_1.i_am_referal_of)
 		user.referal_sum += ref_sum
