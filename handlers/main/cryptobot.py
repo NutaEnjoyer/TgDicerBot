@@ -1,5 +1,7 @@
 import datetime
 import requests
+import xml.etree.ElementTree as ET
+
 
 TOKEN = "135343:AAUlyxb1hUYZOkixa67zzna2LShjl4fe8O7"
 
@@ -19,16 +21,15 @@ class CryptoBot:
 		}
 
 	@staticmethod
-	def get_usdt_to_rub_course():
-		url = 'https://api.exchangerate-api.com/v4/latest/USD'
-		response = requests.get(url)
-
-		if response.status_code == 200:
-			data = response.json()
-			rub_course = data['rates']['RUB']
-			return rub_course
-		else:
-			return None
+	def get_usdt_to_rub_course(char_code_currency="USD"):
+		"""
+		:param char_code_currency: can see here - https://www.cbr.ru/scripts/XML_daily.asp
+		:return: float_number
+		"""
+		return float(
+			ET.fromstring(requests.get('https://www.cbr.ru/scripts/XML_daily.asp').text).find(
+				'./Valute[CharCode="USD"]/Value').text.replace(',', '.')
+		)
 
 	def get_me(self):
 		u = url + 'getMe/'

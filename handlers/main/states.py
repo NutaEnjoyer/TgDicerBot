@@ -13,5 +13,8 @@ class Admin(StatesGroup):
 	ReferalRate = State()
 	ProfilePhoto = State()
 	RulesPhoto = State()
-
+	GamesPhoto = State()
+	DicePhoto = State()
+	DartsPhoto = State()
+	BowlingPhoto = State()
 

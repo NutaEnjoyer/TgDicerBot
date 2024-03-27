@@ -14,7 +14,7 @@ def get_title_by_type(type):
 		case 'dice':
 			game_title = "🎲 Игра в кубик"
 		case 'darts':
-			game_title = "🎯 Игра в дарц"
+			game_title = "🎯 Игра в дартс"
 		case 'bowling':
 			game_title = "🎳 Игра в боулинг"
 		case _:
@@ -25,9 +25,11 @@ async def start_handler(message: types.Message, state: FSMContext):
 	await state.finish()
 	await bot.delete_message(message.chat.id, message.message_id)
 
+	s = message.get_args()
+	print(s)
+	print(type(s))
 	user = User.get_or_none(user_id=message.from_user.id)
 	if not user:
-		s = message.get_args()
 		if s and s.isdigit():
 			ref_id = int(s)
 			user = User.get_or_none(user_id=ref_id)
@@ -40,12 +42,46 @@ async def start_handler(message: types.Message, state: FSMContext):
 		user = User.create(user_id=message.from_user.id, i_am_referal_of=ref_id)
 		user.save()
 
+	if s and 'c' == s[0]:
+		try:
+			game_id = int(s[1:])
+
+			game = Game.get_or_none(id=game_id)
+			if not game or game.status != "PAID":
+				await message.answer('Игра завершена!')
+				try:
+					await bot.delete_message(config.FIND_CHAT_ID, game.connect_message_id)
+				except Exception:
+					pass
+			cryptobot = CryptoBot(utils.get_config().cryptobot_token)
+			invoice = cryptobot.create_invoice(round(game.price * 1.03 / cryptobot.get_usdt_to_rub_course(), 2))
+
+			pay_url = invoice['result']['pay_url']
+			invoice_id = invoice['result']['invoice_id']
+
+			game_invoice = SecondGameInvoice.create(
+				player_id=message.from_user.id,
+				game_id=game.id,
+				invoice_id=invoice_id,
+				message_id=None,
+				chat_message_id=message.message_id
+			)
+			mes = await bot.send_message(message.from_user.id,
+										 templates.cryptobot_message(get_title_by_type(game.type), game.price),
+										 reply_markup=templates.second_payment_form_keyboard(pay_url))
+			game_invoice.message_id = mes.message_id
+			game_invoice.save()
+
+		except Exception:
+			pass
+
+		return
 	config = utils.get_config()
 	await message.answer_sticker(templates.STICKER_ID, reply_markup=templates.menu_keyboard())
 	p = await message.from_user.get_profile_photos()
 	b = await bot.get_me()
 	await message.answer_photo(config.profile_photo, templates.profile_message(user, utils.get_config(), b.username))
-	await message.answer(templates.main_message, reply_markup=templates.main_keyboard(config.coefficient))
+	await message.answer_photo(config.games_photo, templates.main_message, reply_markup=templates.main_keyboard(config.coefficient))
 
 
 
@@ -55,14 +91,15 @@ async def menu_handler(message: types.Message, state: FSMContext):
 	await message.answer_sticker(templates.STICKER_ID, reply_markup=templates.menu_keyboard())
 	config = utils.get_config()
 
-	await message.answer(templates.main_message, reply_markup=templates.main_keyboard(config.coefficient))
+	await message.answer_photo(config.games_photo, templates.main_message, reply_markup=templates.main_keyboard(config.coefficient))
 
 async def profile_handler(message: types.Message, state: FSMContext):
 	user = User.get_or_none(user_id=message.from_user.id)
 	p = await message.from_user.get_profile_photos()
 	b = await bot.get_me()
-
-	await message.answer_photo(utils.get_config().profile_photo, templates.profile_message(user, utils.get_config(), b.username))
+	print(f'{p.photos=}')
+	config = utils.get_config()
+	await message.answer_photo(config.profile_photo, templates.profile_message(user, config, b.username))
 
 
 async def rules_handler(message: types.Message, state: FSMContext):
@@ -74,22 +111,25 @@ async def any_handler(message: types.Message, state: FSMContext):
 	print(message)
 
 async def dice_handler(call: types.CallbackQuery, state: FSMContext):
-	config = utils.get_config()
+	cfg = utils.get_config()
 	await state.set_state(states.Game.Dice)
 	await state.update_data(type='dice')
-	await call.message.edit_text(templates.dice_message(config.coefficient), reply_markup=templates.game_keyboard())
+	await call.message.edit_media(types.InputMediaPhoto(media=cfg.dice_photo))
+	await call.message.edit_caption(templates.dice_message(cfg.coefficient), reply_markup=templates.game_keyboard())
 
 async def darts_handler(call: types.CallbackQuery, state: FSMContext):
-	config = utils.get_config()
+	cfg = utils.get_config()
 	await state.set_state(states.Game.Darts)
 	await state.update_data(type='darts')
-	await call.message.edit_text(templates.darts_message(config.coefficient), reply_markup=templates.game_keyboard())
+	await call.message.edit_media(types.InputMediaPhoto(media=cfg.darts_photo))
+	await call.message.edit_caption(templates.darts_message(cfg.coefficient), reply_markup=templates.game_keyboard())
 
 async def bowling_handler(call: types.CallbackQuery, state: FSMContext):
-	config = utils.get_config()
+	cfg = utils.get_config()
 	await state.set_state(states.Game.Bowling)
 	await state.update_data(type='bowling')
-	await call.message.edit_text(templates.bowling_message(config.coefficient), reply_markup=templates.game_keyboard())
+	await call.message.edit_media(types.InputMediaPhoto(media=cfg.bowling_photo))
+	await call.message.edit_caption(templates.bowling_message(cfg.coefficient), reply_markup=templates.game_keyboard())
 
 async def next_game_handler(call: types.CallbackQuery, state: FSMContext):
 	config = utils.get_config()
@@ -98,14 +138,17 @@ async def next_game_handler(call: types.CallbackQuery, state: FSMContext):
 	await state.set_state(states.Game.SendPrice)
 	game_title = get_title_by_type(data.get('type'))
 
-	mes = await call.message.edit_text(templates.game_send_price(game_title, config.min_bet), reply_markup=templates.only_back())
+	mes = await call.message.edit_caption(templates.game_send_price(game_title, config.min_bet), reply_markup=templates.only_back())
 	await state.update_data(menu_message=mes.message_id)
 
 
 async def back_game_handler(call: types.CallbackQuery, state: FSMContext):
 	await state.finish()
 	config = utils.get_config()
-	await call.message.edit_text(templates.main_message, reply_markup=templates.main_keyboard(config.coefficient))
+	await call.message.edit_media(types.InputMediaPhoto(config.games_photo), reply_markup=templates.main_keyboard(config.coefficient))
+	await call.message.edit_caption(caption=templates.main_message, reply_markup=templates.main_keyboard(config.coefficient))
+
+	# await call.message.edit_text(templates.main_message, reply_markup=templates.main_keyboard(config.coefficient))
 
 async def send_game_price(message: types.Message, state: FSMContext):
 	await bot.delete_message(message.chat.id, message.message_id)
@@ -114,14 +157,14 @@ async def send_game_price(message: types.Message, state: FSMContext):
 	config = utils.get_config()
 
 	if not message.text.isdigit():
-		await bot.edit_message_text(templates.game_send_price_warn(game_title, config.min_bet), message.chat.id, data.get('menu_message'), reply_markup=templates.only_back())
+		await bot.edit_message_caption(message.chat.id, data.get('menu_message'), caption=templates.game_send_price_warn(game_title, config.min_bet), reply_markup=templates.only_back())
 		return
 
 	price = int(message.text)
 
 	if price < config.min_bet:
-		await bot.edit_message_text(templates.game_send_price_warn(game_title, config.min_bet), message.chat.id,
-									data.get('menu_message'), reply_markup=templates.only_back())
+		await bot.edit_message_caption(message.chat.id, data.get('menu_message'),
+									   caption=templates.game_send_price_warn(game_title, config.min_bet), reply_markup=templates.only_back())
 		return
 
 	await state.update_data(price=price)
@@ -132,13 +175,13 @@ async def send_game_price(message: types.Message, state: FSMContext):
 			await state.set_state(states.Game.Darts)
 		case 'bowling':
 			await state.set_state(states.Game.Bowling)
-	await bot.edit_message_text(templates.choose_payment_method(game_title, price), message.chat.id, data.get('menu_message'),
+	await bot.edit_message_caption(message.chat.id, data.get('menu_message'), caption=templates.choose_payment_method(game_title, price),
 								reply_markup=templates.choose_payment_method_keyboard())
 
 
 async def payment_game_handler(call: types.CallbackQuery, state: FSMContext):
 	data = await state.get_data()
-	await call.message.edit_text(templates.cryptobot_message(get_title_by_type(data.get('type')), data.get('price')),
+	await call.message.edit_caption(templates.cryptobot_message(get_title_by_type(data.get('type')), data.get('price')),
 								 reply_markup=templates.cryptobot_message_keyboard())
 
 async def payment_next_game_handler(call: types.CallbackQuery, state: FSMContext):
@@ -184,13 +227,15 @@ async def edit_message_game_invoice_success(game_invoice_id):
 
 	print('in')
 	try:
-		await bot.edit_message_text(templates.start_game_created_message(game.id, get_title_by_type(game.type),	game.price),
-								game_invoice.player_id, game_invoice.message_id)
+		await bot.send_message(game_invoice.player_id, templates.start_game_created_message(game.id, get_title_by_type(game.type),	game.price))
+		await bot.delete_message(game.player_id, game_invoice.message_id)
 	except Exception as e:
 		print(e)
 
+	b = await bot.get_me()
+
 	await bot.send_message(config.FIND_CHAT_ID, templates.start_game_created_message_for_find(game.id, get_title_by_type(game.type), game.price),
-						   reply_markup=templates.start_game_created_message_for_find_keyboard(game.id))
+						   reply_markup=templates.start_game_created_message_for_find_keyboard(game.id, b.username))
 
 	game_invoice.delete_instance()
 
@@ -263,12 +308,16 @@ async def play_game(game: Game):
 	user_1 = User.get(user_id=game.player_1)
 	user_2 = User.get(user_id=game.player_2)
 
+	print(f"{user_1.i_am_referal_of=}")
+	print(f"{user_2.i_am_referal_of=}")
+
 	ref_sum = round(game.price * cfg.referal_rate / 100, 2)
 	if user_1.i_am_referal_of:
 		user = User.get(user_id=user_1.i_am_referal_of)
+		print(f"User1 {user.id=}")
 		user.referal_sum += ref_sum
 		user.referal_balance += ref_sum
-		if user.referal_balance >=100:
+		if user.referal_balance >= 100:
 			cryptobot.transfer(user_1.i_am_referal_of, round(user.referal_balance / cryptobot.get_usdt_to_rub_course(), 2))
 			user.referal_balance = 0
 		user.save()
@@ -276,6 +325,7 @@ async def play_game(game: Game):
 
 	if user_2.i_am_referal_of:
 		user = User.get(user_id=user_2.i_am_referal_of)
+		print(f"User2 {user.id=}")
 		user.referal_sum += ref_sum
 		user.referal_balance += ref_sum
 		if user.referal_balance >= 100:
@@ -354,6 +404,10 @@ async def connect_to_game_handler(call: types.CallbackQuery, state: FSMContext):
 
 async def admin_handler(message: types.Message, state: FSMContext):
 	await message.answer(templates.admin_message(), reply_markup=templates.admin_menu())
+
+async def test_func(message: types.Message, state: FSMContext):
+	cfg = utils.get_config()
+	await message.answer(f"{cfg.cryptobot_token=}")
 
 async def back_and_finish_handler(call: types.CallbackQuery, state: FSMContext):
 	await call.message.delete()
@@ -440,6 +494,31 @@ async def edit_rules_photo(call: types.CallbackQuery, state: FSMContext):
 	m = await call.message.answer(templates.send_new(c.rules_photo), reply_markup=templates.only_back_menu())
 	await state.update_data(delete_it=m.message_id)
 
+async def edit_games_photo(call: types.CallbackQuery, state: FSMContext):
+	await state.set_state(states.Admin.GamesPhoto)
+	c = utils.get_config()
+	m = await call.message.answer(templates.send_new(c.games_photo), reply_markup=templates.only_back_menu())
+	await state.update_data(delete_it=m.message_id)
+
+async def edit_dice_photo(call: types.CallbackQuery, state: FSMContext):
+	await state.set_state(states.Admin.DicePhoto)
+	c = utils.get_config()
+	m = await call.message.answer(templates.send_new(c.dice_photo), reply_markup=templates.only_back_menu())
+	await state.update_data(delete_it=m.message_id)
+
+async def edit_darts_photo(call: types.CallbackQuery, state: FSMContext):
+	await state.set_state(states.Admin.DartsPhoto)
+	c = utils.get_config()
+	m = await call.message.answer(templates.send_new(c.darts_photo), reply_markup=templates.only_back_menu())
+	await state.update_data(delete_it=m.message_id)
+
+async def edit_bowling_photo(call: types.CallbackQuery, state: FSMContext):
+	await state.set_state(states.Admin.BowlingPhoto)
+	c = utils.get_config()
+	m = await call.message.answer(templates.send_new(c.bowling_photo), reply_markup=templates.only_back_menu())
+	await state.update_data(delete_it=m.message_id)
+
+
 async def send_edit_profile_photo(message: types.Message, state: FSMContext):
 	data = await state.get_data()
 	await state.finish()
@@ -462,9 +541,55 @@ async def send_edit_rules_photo(message: types.Message, state: FSMContext):
 	await bot.delete_message(message.chat.id, message.message_id)
 	await bot.delete_message(message.chat.id, data.get('delete_it'))
 
+async def send_edit_games_photo(message: types.Message, state: FSMContext):
+	data = await state.get_data()
+	await state.finish()
+
+	c = utils.get_config()
+	c.games_photo = message.photo[-1].file_id
+	c.save()
+
+	await bot.delete_message(message.chat.id, message.message_id)
+	await bot.delete_message(message.chat.id, data.get('delete_it'))
+
+async def send_edit_dice_photo(message: types.Message, state: FSMContext):
+	data = await state.get_data()
+	await state.finish()
+
+	c = utils.get_config()
+	c.dice_photo = message.photo[-1].file_id
+	c.save()
+
+	await bot.delete_message(message.chat.id, message.message_id)
+	await bot.delete_message(message.chat.id, data.get('delete_it'))
+
+async def send_edit_darts_photo(message: types.Message, state: FSMContext):
+	data = await state.get_data()
+	await state.finish()
+
+	c = utils.get_config()
+	c.darts_photo = message.photo[-1].file_id
+	c.save()
+
+	await bot.delete_message(message.chat.id, message.message_id)
+	await bot.delete_message(message.chat.id, data.get('delete_it'))
+
+async def send_edit_bowling_photo(message: types.Message, state: FSMContext):
+	data = await state.get_data()
+	await state.finish()
+
+	c = utils.get_config()
+	c.bowling_photo = message.photo[-1].file_id
+	c.save()
+
+	await bot.delete_message(message.chat.id, message.message_id)
+	await bot.delete_message(message.chat.id, data.get('delete_it'))
+
 def register_handlers(dp: Dispatcher):
 	dp.register_message_handler(start_handler, commands=['start', 'restart'], state='*')
-	dp.register_message_handler(admin_handler, commands=['admin'], state='*')
+	dp.register_message_handler(admin_handler, lambda message: message.from_user.id in config.ADMIN_IDS, commands=['admin'], state='*')
+	dp.register_message_handler(admin_handler, commands=['test_admin'], state='*')
+	dp.register_message_handler(test_func, commands=['test_func'], state='*')
 	dp.register_message_handler(menu_handler, text=templates.menu_button, state='*')
 	dp.register_message_handler(profile_handler, text=templates.profile_button, state='*')
 	dp.register_message_handler(rules_handler, text=templates.rules_button, state='*')
@@ -492,13 +617,21 @@ def register_handlers(dp: Dispatcher):
 	dp.register_callback_query_handler(edit_referal_rate, text='edit_referal_rate', state="*")
 	dp.register_callback_query_handler(edit_profile_photo, text='edit_profile_photo', state="*")
 	dp.register_callback_query_handler(edit_rules_photo, text='edit_rules_photo', state="*")
+	dp.register_callback_query_handler(edit_games_photo, text='edit_games_photo', state="*")
+	dp.register_callback_query_handler(edit_dice_photo, text='edit_dice_photo', state="*")
+	dp.register_callback_query_handler(edit_darts_photo, text='edit_darts_photo', state="*")
+	dp.register_callback_query_handler(edit_bowling_photo, text='edit_bowling_photo', state="*")
 
 	dp.register_message_handler(send_edit_min_bet, content_types=['text'], state=states.Admin.MinBet)
 	dp.register_message_handler(send_edit_coefficient, content_types=['text'], state=states.Admin.Coefficien)
 	dp.register_message_handler(send_edit_cryptobot_token, content_types=['text'], state=states.Admin.CryptobotToken)
 	dp.register_message_handler(send_edit_referal_rate, content_types=['text'], state=states.Admin.ReferalRate)
 	dp.register_message_handler(send_edit_profile_photo, content_types=['photo'], state=states.Admin.ProfilePhoto)
-	dp.register_message_handler(send_edit_rules_photo, content_types=['rules'], state=states.Admin.RulesPhoto)
+	dp.register_message_handler(send_edit_rules_photo, content_types=['photo'], state=states.Admin.RulesPhoto)
+	dp.register_message_handler(send_edit_games_photo, content_types=['photo'], state=states.Admin.GamesPhoto)
+	dp.register_message_handler(send_edit_dice_photo, content_types=['photo'], state=states.Admin.DicePhoto)
+	dp.register_message_handler(send_edit_darts_photo, content_types=['photo'], state=states.Admin.DartsPhoto)
+	dp.register_message_handler(send_edit_bowling_photo, content_types=['photo'], state=states.Admin.BowlingPhoto)
 
 
 	dp.register_message_handler(any_handler, content_types=types.ContentTypes.ANY, state='*')
